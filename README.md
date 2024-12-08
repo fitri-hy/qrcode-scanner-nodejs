@@ -2,7 +2,7 @@
 
 Testing Scanner Reader Tools Like Cashiers
 
-Example Data
+### Example Data
 ```
 [
   {
@@ -34,3 +34,6 @@ Example Data
 
 > `id` : required. others data optional
 
+### QRCode Example
+
+<img src="./public/001.png">
