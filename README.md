@@ -37,3 +37,7 @@ Testing Scanner Reader Tools Like Cashiers
 ### QRCode Example
 
 <img src="./public/001.png">
+
+### Screenshoot
+
+<img src="./public/ss.png">
