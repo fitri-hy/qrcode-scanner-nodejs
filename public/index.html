@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QR Code Scanner</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js" integrity="sha512-r6rDA7W6ZeQhvl8S7yRVQUKVHdexq+GAlNkNNqVC7YyIV+NwqCTJe2hDWCiffTyRNOeGEzRRJ9ifvRm/HCzGYg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-800 text-gray-200 font-sans">
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 p-4">
+		<div>
+			<div class="flex justify-between gap-4">
+				<select id="camera-select" class="border border-gray-700 px-4 py-2 rounded bg-gray-900 focus:outline-none">
+					<option>Select Camera</option>
+				</select>
+				<button id="start-scan" class="border border-gray-700 p-2 rounded bg-green-800 hover:bg-green-700 focus:outline-none">
+					<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-6">
+					  <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 0 1 0 1.972l-11.54 6.347a1.125 1.125 0 0 1-1.667-.986V5.653Z" />
+					</svg>
+				</button>
+			</div>
+			<div id="reader" class="mt-8 hidden mx-auto w-full rounded"></div>
+			<div class="mt-2">
+				<pre id="result" class="bg-gray-900 w-full h-auto max-h-[250px] text-green-500 overflow-auto p-4 shadow-md rounded-md text-sm"><code>No data</code></pre>
+			</div>
+		</div>
+		
+		<div>
+			<div class="">
+				<div class="flex gap-2 items-center justify-between mb-2">
+					<h2 class="text-xl font-bold mb-2">Data Product (JSON)</h2>
+					<button id="submit-json" class="flex gap-2 border border-gray-700 p-2 rounded bg-green-800 hover:bg-green-700 focus:outline-none">
+						<span>Simpan</span>
+						<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-6">
+						  <path stroke-linecap="round" stroke-linejoin="round" d="m20.25 7.5-.625 10.632a2.25 2.25 0 0 1-2.247 2.118H6.622a2.25 2.25 0 0 1-2.247-2.118L3.75 7.5m8.25 3v6.75m0 0-3-3m3 3 3-3M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z" />
+						</svg>
+					</button>
+				</div>
+				<textarea id="product-json" rows="3" class="w-full bg-gray-900 text-green-500 placeholder-green-700 rounded p-4" placeholder='Enter product data in JSON format...'></textarea>
+			</div>
+			<div class="">
+				<h2 class="text-2xl font-bold mb-2">Product Data</h2>
+				<pre id="data-json" class="bg-gray-900 w-full h-auto max-h-[250px] text-green-500 overflow-auto p-4 shadow-md rounded-md text-sm"><code>There is no product data, enter it first.</code></pre>
+			</div>
+		</div>
+    </div>
+
+    <script>
+        let productData = [];
+        let currentCameraId = null;
+        const qrCodeReader = new Html5Qrcode("reader");
+
+        function updateProductData() {
+            const dataJsonElement = document.getElementById('data-json');
+            const codeElement = dataJsonElement.querySelector('code');
+            codeElement.textContent = JSON.stringify({ data: productData }, null, 2);
+        }
+
+		document.getElementById('submit-json').addEventListener('click', () => {
+			const jsonInput = document.getElementById('product-json').value;
+			try {
+				const parsedData = JSON.parse(jsonInput);
+
+				if (Array.isArray(parsedData)) {
+					parsedData.forEach(product => {
+						if (product.id) {
+							productData.push(product);
+						} else {
+							alert("Invalid product data! Each product must have an 'id'.");
+							return;
+						}
+					});
+
+					updateProductData();
+					document.getElementById('product-json').value = '';
+				} else {
+					alert("Please enter a valid array of products.");
+				}
+			} catch (error) {
+				alert("Invalid JSON format!");
+			}
+		});
+
+        const cameraSelect = document.getElementById('camera-select');
+        const startScanButton = document.getElementById('start-scan');
+
+        async function populateCameraOptions() {
+            try {
+                const devices = await Html5Qrcode.getCameras();
+                devices.forEach((device) => {
+                    const option = document.createElement('option');
+                    option.value = device.id;
+                    option.textContent = device.label || `Camera ${cameraSelect.length + 1}`;
+                    cameraSelect.appendChild(option);
+                });
+            } catch (error) {
+                console.error('Error fetching cameras:', error);
+            }
+        }
+
+        startScanButton.addEventListener('click', () => {
+            const selectedCameraId = cameraSelect.value;
+            if (!selectedCameraId) {
+                alert('Please select a camera.');
+                return;
+            }
+
+            document.getElementById('reader').classList.remove('hidden');
+
+            if (currentCameraId && currentCameraId !== selectedCameraId) {
+                qrCodeReader.stop().then(() => {
+                    startScanning(selectedCameraId);
+                }).catch(err => {
+                    console.error("Error stopping scanner: ", err);
+                });
+            } else {
+                startScanning(selectedCameraId);
+            }
+        });
+
+        function startScanning(cameraId) {
+            qrCodeReader.start(
+                cameraId,
+                {
+                    fps: 10,
+                    qrbox: { width: 250, height: 250 },
+                },
+                (decodedText, decodedResult) => {
+                    document.getElementById('result').innerText = `Scanned Result: ${decodedText}`;
+
+                    const product = productData.find(p => p.id === decodedText);
+                    if (product) {
+                        document.getElementById('result').innerHTML = `<pre>${JSON.stringify(product, null, 2)}</pre>`;
+                    } else {
+                        document.getElementById('result').innerText = 'Product not found!';
+                    }
+                },
+                (errorMessage) => {
+                    console.warn(errorMessage);
+                }
+            ).catch(err => {
+                console.error("Error starting QR Code scanner: ", err);
+            });
+
+            currentCameraId = cameraId;  // Update the current camera id
+        }
+
+        populateCameraOptions();
+    </script>
+</body>
+</html>
