@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scanner Barcode</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-neutral-900 text-gray-200">
+    <div>
+        <select id="cameraSelector" class="fixed top-4 left-4 z-50 rounded bg-neutral-800 px-4 py-2">
+            <option value="environment">Front Camera</option>
+            <option value="user">Behind Camera</option>
+        </select>
+        <p id="output" class="fixed left-1/2 -translate-x-1/2 bottom-4 z-40 bg-neutral-800 px-4 py-2 rounded shadow">
+            Waiting...
+        </p>
+    </div>
+    <section class="relative w-full h-screen">
+        <video id="video" autoplay class="h-full w-full object-cover"></video>
+        <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 lg:w-96 lg:h-96 border-4 border-green-500 rounded-md"></div>
+    </section>
+    <canvas id="canvas" class="hidden"></canvas>
+
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+    <script>
+        const Settings = {
+            SCAN_DELAY: 1000,
+            loadData: async function() {
+                try {
+                    const response = await fetch('/data.json'); // Support API Url
+                    const jsonData = await response.json();
+                    return jsonData;
+                } catch (error) {
+                    console.error('Error loading data:', error);
+                    return [];
+                }
+            },
+            resultData: function(scannedData, data) {
+				return scannedData ? `${scannedData.id}\n` : "Data not detected.";
+                /*
+				// Display All Paramenter Data String
+				return scannedData ? `ID: ${scannedData.id}\n` + Object.keys(scannedData).map(key => {
+                    if (key !== 'id') {
+                        return `${key.charAt(0).toUpperCase() + key.slice(1)}: ${scannedData[key]}`;
+                    }
+                }).join('\n') : "Data not detected.";
+				
+				// Display All Paramenter Data Json
+				return JSON.stringify(scannedData ? {
+					id: scannedData.id,
+					details: Object.keys(scannedData).reduce((result, key) => {
+						if (key !== 'id') {
+							result[key] = scannedData[key];  // Tidak ada perubahan pada key
+						}
+						return result;
+					}, {})
+				} : { message: "Data not detected" });
+				*/
+            }
+        };
+
+        const video = document.getElementById("video");
+        const canvas = document.getElementById("canvas");
+        const output = document.getElementById("output");
+        const context = canvas.getContext("2d");
+        const cameraSelector = document.getElementById("cameraSelector");
+        let currentStream = null;
+        let lastScanResult = null;
+        let lastScanTime = 0;
+        let data = [];
+        let lastScannedData = null;
+        
+        (async () => {
+            data = await Settings.loadData();
+        })();
+
+        function startCamera(facingMode = "environment") {
+            if (currentStream) {
+                currentStream.getTracks().forEach(track => track.stop());
+            }
+            navigator.mediaDevices
+                .getUserMedia({ video: { facingMode } })
+                .then((stream) => {
+                    currentStream = stream;
+                    video.srcObject = stream;
+                })
+                .catch((err) => {
+                    console.error("Failed access camera:", err);
+                    output.textContent = "Cannot access camera.";
+                });
+        }
+
+        cameraSelector.addEventListener("change", (event) => {
+            startCamera(event.target.value);
+        });
+
+        video.addEventListener("play", () => {
+            const scan = () => {
+                if (!video.videoWidth || !video.videoHeight) {
+                    requestAnimationFrame(scan);
+                    return;
+                }
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                context.drawImage(video, 0, 0, canvas.width, canvas.height);
+                const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+                const code = jsQR(imageData.data, imageData.width, imageData.height);
+                const now = Date.now();
+                if (code && (now - lastScanTime > Settings.SCAN_DELAY)) {
+                    lastScanResult = code.data;
+                    lastScanTime = now;
+                    output.textContent = "";
+                    const scannedData = data.find(item => item.id === code.data);
+                    lastScanResult = Settings.resultData(scannedData, data);
+                    output.textContent = lastScanResult;
+                    output.classList.add("bg-green-500", "text-black");
+                    setTimeout(() => {
+                        output.classList.remove("bg-green-500", "text-black");
+                    }, Settings.SCAN_DELAY);
+                    lastScannedData = code.data;
+                    setTimeout(() => {
+                        requestAnimationFrame(scan);
+                    }, Settings.SCAN_DELAY);
+                } else if (!code) {
+                    output.textContent = lastScanResult || "Ready";
+                    requestAnimationFrame(scan);
+                }
+            };
+            scan();
+        });
+
+        startCamera("environment");
+    </script>
+</body>
+</html>
